@@ -330,7 +330,7 @@ class MagicTowerSimulator:
             counter = self._round_half_up(self.m_atk / 3)
             counter_big = self._round_half_up(self.m_atk / 2)
             # 无法战斗判定
-            if all(x == 0 for x in mm) and counter == 0:
+            if all(x == 0 for x in mm) and (counter == 0 or self.special_type == 'magic'):
                 return np.nan   
 
             if self.special_type != 'magic':           
@@ -392,7 +392,7 @@ class MagicTowerSimulator:
                                 B[i+1] += pp[1] * A[i] * (F[i+1][h - counter] + 1)
                         A[i+1] += (1 - pp[1]) * A[i]
                         B[i+1] += B[i]
-                    assert(A[K+1] < 1)
+                    assert(A[K+1] < 1 - 1e-6)
                     F[0][h] = B[K+1] / (1 - A[K+1])
                     F[K+1][h] = F[0][h]
                     # 计算F[i][h] (1<= i <= K)
@@ -418,7 +418,7 @@ class MagicTowerSimulator:
                                 D[i+1] += pp[1] * C[i] * G[i+1][h - counter]
                         C[i+1] += (1 - pp[1]) * C[i]
                         D[i+1] += D[i] + (1 - pp[1]) * C[i]
-                    assert(C[K+1] < 1)
+                    assert(C[K+1] < 1 - 1e-6)
                     G[0][h] = D[K+1] / (1 - C[K+1])
                     G[K+1][h] = G[0][h]
                     # 计算G[i][h] (1<= i <= K)
@@ -448,7 +448,7 @@ class MagicTowerSimulator:
                             A += qq[i]
                         else:
                             B += qq[i] * F[max(0, h - mm[i])]
-                    assert(A < 1)
+                    assert(A < 1 - 1e-6)
                     F[h] = B / (1 - A)
                 expected_turns = F[H] - 1
                 return monster_dmg_per_turn * expected_turns
