@@ -1,2 +1,30 @@
+## Blacklist: ignore typical temporary/build files and IDE dirs
+
+# Python cache and compiled files
 __pycache__/
+*.pyc
+*.pyo
+
+# Jupyter checkpoints
 .ipynb_checkpoints/
+
+# Virtual environment folders
+venv/
+ENV/
+env/
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# pytest cache
+.pytest_cache/
+
+# Notebook conversion outputs
+*.nbconvert.ipynb
+
+# Keep README, source and notebooks tracked by default (no whitelist here)

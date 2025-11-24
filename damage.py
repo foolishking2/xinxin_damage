@@ -1,8 +1,32 @@
 import random
 import numpy as np
 
-class MagicTowerSimulator:
 
+"""
+贤者之证
+1级:功效为:回血:当怪物的一次攻击没打中主角时,主角有61%的几率回复体力,回复体力=怪物攻击力/5。
+2级:功效为:回血:当怪物的一次攻击没打中主角时,主角有81%的几率回复体力,回复体力=怪物攻击力/5。集能:当非魔法师系怪物的一次攻击击中主角且能造成伤害时,主角有11%的几率收集一次能量,同时减伤50点(怪物暴击判定前),每次收集的能量会使主角在战斗胜利后随机回复0到29点体力。
+3级:功效为:回血:当怪物的一次攻击没打中主角时,回复体力=怪物攻击力/5。集能:当怪物的一次攻击击中主角时,如果该怪物不是魔法师系怪物且能对主角造成伤害,那么主角有31%的几率收集一次能量,同时减伤50点(怪物暴击判定前),每次收集的能量会使主角在最近的一次战斗胜利后随机回复0到29点体力;如果该怪物是魔法师系怪物,那么主角有21%的几率收集一次能量,同时减伤100点(怪物暴击判定前),每次收集的能量会使主角在战斗胜利后随机回复体力为:怪物攻击力到怪物攻击力+19。
+(所有减伤均可减为负数)
+
+霸者之证
+1级:功效为:反弹:当非魔法师系怪物的一次攻击击中主角时,主角有6%的几率反弹攻击,如果怪物对主角的伤害/2≧怪物体力,那么怪物直接死亡,否则主角承受伤害=怪物对主角的伤害,怪物承受伤害=怪物对主角的伤害/2。
+2级:功效为:反弹:当非魔法师系怪物的一次攻击击中主角时,主角有11%的几率反弹攻击,如果怪物对主角的伤害≧怪物体力,那么怪物直接死亡,否则主角承受伤害=怪物对主角的伤害/2,怪物承受伤害=怪物对主角的伤害。霸体:当非魔法师系怪物的一次攻击击中主角但没有触发反弹功效时,主角有11%的几率本次攻击伤害计算中防御力*2。
+3级:功效为:反弹:当非魔法师系怪物的一次攻击击中主角时,主角有16%的几率反弹攻击,如果怪物攻击力/2≧怪物体力,那么怪物直接死亡,否则主角承受伤害=怪物对主角的伤害/3,怪物承受伤害=怪物攻击力/3。霸体:当非魔法师系怪物的一次攻击击中主角但没有触发反弹功效时,主角有16%的几率本次攻击伤害计算中防御力*2。破防:当主角的一次攻击击中怪物时,怪物有11%的几率本次攻击伤害计算中防御力-怪物防御力/1.3。
+(攻击反弹时,怪物不会暴击。当怪物击中主角时,先进行是否反弹的判定,如果判定为不反弹,接着才会进入暴击的判定。)
+
+(3级霸者反弹目标为毒龍(E336)、大魔王(redKing)、魔王‧格勒第(vamp)时,双方均不受伤)
+
+(破防技能对黃金史萊姆(gold)、魔王‧格勒第(vamp)无效)
+
+勇者之证
+1级:功效为:必杀率+5%。(就是暴击率+5%)
+2级:功效为:攻击次数+1。(勇士每回合可以进行2次独立的攻击)
+3级:功效为:当主角的一次攻击击中怪物且能造成伤害,并且主角防御力＜怪物攻击力时,有16%的几率主角对怪物造成附加伤害(暴击判定前),数值为主角的防御力/4。 (对铁怪(实现时改为坚固怪)无效)
+(勇者之证3级时2级效果同样成立)
+"""
+
+class MagicTowerSimulator:
     def _round_half_up(self, value):
             """
             Helper function to implement standard mathematical rounding (round half up).
@@ -11,11 +35,11 @@ class MagicTowerSimulator:
             return int(value + 0.5 + 1e-8)
 
     def __init__(self, 
-                 m_hp, m_atk, m_def, m_eva, m_crit,  # m=怪物的，hp=生命值，atk=攻击力，def=防御力，eva=闪避率,crit=暴击率
+                 m_hp, m_atk, m_def, m_eva, m_crit,  # m=怪物的,hp=生命值,atk=攻击力,def=防御力,eva=闪避率,crit=暴击率
                  h_atk, h_def, h_eva, h_crit,        # h=勇士的
-                 h_atk_thresh=0, h_def_thresh=0,     # 攻击临界值，防御临界值
-                 special_type=None,  # 怪物的特殊能力，只允许 'solid', 'mimic', 'magic', 'k_combo' ，None
-                 k_value=1,          # 怪物的连击次数，仅当 special_type='k_combo' 时有效
+                 h_atk_thresh=0, h_def_thresh=0,     # 攻击临界值,防御临界值
+                 special_type=None,  # 怪物的特殊能力,只允许 'solid', 'mimic', 'magic', 'k_combo' ,None
+                 k_value=1,          # 怪物的连击次数,仅当 special_type='k_combo' 时有效
                  emblem_type=None,   # 章的类型 (None, 'sage', 'hero', 'overlord')
                  emblem_level=0):    # 章的等级 (0-3)
         """
@@ -110,7 +134,7 @@ class MagicTowerSimulator:
 
     def simulate_once(self):
         """
-        模拟一次完整的战斗过程，返回勇士受到的总伤害。
+        模拟一次完整的战斗过程,返回勇士受到的总伤害。
         """
         
         is_ol_3 = self.emblem_type == 'overlord' and self.emblem_level == 3
@@ -125,7 +149,7 @@ class MagicTowerSimulator:
         
         # 2. 勇士破防 (Breach) 攻击伤害潜力
         if is_ol_3:
-            # 计算最大的防御减少量（即破防成功）
+            # 计算最大的防御减少量(即破防成功)
             reduction_max = self._round_half_up(self.m_def / 1.3)
             m_def_min = max(0, self.m_def - reduction_max)
             
@@ -141,7 +165,7 @@ class MagicTowerSimulator:
             # 怪物承受伤害 = 怪物攻击力 / 3
             counter_dmg_potential = self._round_half_up(self.m_atk / 3)
 
-        # 最终判定：如果所有伤害来源都不能对怪物造成伤害，则战斗无法胜利 (np.nan)
+        # 最终判定:如果所有伤害来源都不能对怪物造成伤害,则战斗无法胜利 (np.nan)
         if max_potential_hero_dmg <= 0 and counter_dmg_potential <= 0:
              return np.nan
         
@@ -152,7 +176,7 @@ class MagicTowerSimulator:
         current_m_hp = self.m_hp_max
         total_hero_damage_taken = 0
         
-        # 预设怪物攻击阶段的初始防御力（处理魔攻）
+        # 预设怪物攻击阶段的初始防御力(处理魔攻)
         h_def = 0 if self.special_type == 'magic' else self.h_def
         
         while True:
@@ -165,7 +189,7 @@ class MagicTowerSimulator:
             if random.random() < self.m_eva:
                 damage_to_monster = 0
             else:
-                # B. 命中：检查霸者3级破防 (Breach - 11%)
+                # B. 命中:检查霸者3级破防 (Breach - 11%)
                 if is_ol_3 and random.random() < 0.11:
                     # 怪物防御力/1.3 四舍五入到整数
                     reduction = self._round_half_up(self.m_def / 1.3) 
@@ -192,24 +216,24 @@ class MagicTowerSimulator:
             
             # 怪物 K 连击循环
             for _ in range(self.k_value):
-                # 每次攻击的有效防御力，初始为 h_def (已处理魔攻)
+                # 每次攻击的有效防御力,初始为 h_def (已处理魔攻)
                 current_h_def_for_calc = h_def 
 
                 # Evasion Check
                 if random.random() < self.h_eva:
                     damage_to_hero = 0
                 else:
-                    # --- 命中：检查霸者3级效果 (非魔法师系怪物) ---
+                    # --- 命中:检查霸者3级效果 (非魔法师系怪物) ---
                     
                     if is_non_magic and is_ol_3:
                         
-                        # 2.1 16% 反弹 (Counter) - 独立判定，第一优先级
+                        # 2.1 16% 反弹 (Counter) - 独立判定,第一优先级
                         if random.random() < 0.16: 
                             # 1. 判定瞬杀
                             atk_half_rounded = self._round_half_up(self.m_atk / 2)
                             if atk_half_rounded >= current_m_hp:
                                 current_m_hp = 0
-                                break # 怪物被瞬杀，跳出 K-combo 循环
+                                break # 怪物被瞬杀,跳出 K-combo 循环
                             
                             # 2. 伤害结算
                             original_dmg_base = self._calculate_base_damage(self.m_atk, h_def, self.h_def_thresh)
@@ -221,12 +245,12 @@ class MagicTowerSimulator:
                             current_m_hp -= monster_takes
                             
                             if current_m_hp <= 0:
-                                assert(0) # 理论上不可能发生，因为瞬杀已经处理
-                            continue # 反弹成功，跳过本次攻击的后续判定和伤害计算
+                                assert(0) # 理论上不可能发生,因为瞬杀已经处理
+                            continue # 反弹成功,跳过本次攻击的后续判定和伤害计算
                         
-                        # 2.2 16% 霸体 (Overlord Body) - 独立判定，仅在反弹未触发时执行
+                        # 2.2 16% 霸体 (Overlord Body) - 独立判定,仅在反弹未触发时执行
                         if random.random() < 0.16:
-                            current_h_def_for_calc *= 2 # 防御力翻倍，用于接下来的伤害计算
+                            current_h_def_for_calc *= 2 # 防御力翻倍,用于接下来的伤害计算
                     
                     # --- 标准伤害计算 ---
                     
@@ -245,7 +269,7 @@ class MagicTowerSimulator:
 
     def monte_carlo_simulation(self, n_trials=10000):
         """
-        运行多次模拟，计算详细统计指标。
+        运行多次模拟,计算详细统计指标。
         返回一个包含统计数据的字典。
         """
         results = []
@@ -253,7 +277,7 @@ class MagicTowerSimulator:
         # 批量运行模拟
         for _ in range(n_trials):
             res = self.simulate_once()
-            # 如果出现 NaN (打不过)，则整体统计无效，直接返回 NaN 标记
+            # 如果出现 NaN (打不过),则整体统计无效,直接返回 NaN 标记
             if np.isnan(res):
                 return {
                     "count": n_trials,
@@ -362,10 +386,10 @@ class MagicTowerSimulator:
                 E_dmg_counter = nn[1]
 
                 # 计算回合数期望递推公式    
-                # F[0][x]表示怪物血量为x，下一步为勇者对怪物发起攻击时，直到怪物死亡，触发反弹次数的数学期望（不计最后一回合）。
-                # F[i][x]表示怪物血量为x，下一步为怪物对勇者发起第i次攻击时，直到怪物死亡，触发反弹次数的数学期望（不计最后一回合）。
-                # G[0][x]表示怪物血量为x，下一步为勇者对怪物发起攻击时，直到怪物死亡，怪物对勇士未被反弹的攻击次数的数学期望（不计最后一回合）。
-                # G[i][x]表示怪物血量为x，下一步为怪物对勇士发起第i次攻击时，直到怪物死亡，怪物对勇士未被反弹的攻击次数的数学期望（不计最后一回合）。
+                # F[0][x]表示怪物血量为x,下一步为勇者对怪物发起攻击时,直到怪物死亡,触发反弹次数的数学期望（如果怪物死于反弹攻击，则这次不算）。
+                # F[i][x]表示怪物血量为x,下一步为怪物对勇者发起第i次攻击时,直到怪物死亡,触发反弹次数的数学期望（如果怪物死于反弹攻击，则这次不算）。
+                # G[0][x]表示怪物血量为x,下一步为勇者对怪物发起攻击时,直到怪物死亡,怪物对勇士的未被反弹的攻击次数的数学期望（勇士闪避也算一次）。
+                # G[i][x]表示怪物血量为x,下一步为怪物对勇者发起第i次攻击时,直到怪物死亡,怪物对勇士的未被反弹的攻击次数的数学期望（勇士闪避也算一次）。
 
                 # F[0][x] = sum( qq[i] * F[1][x - mm[i]] )  (0<= i <=4)
                 # F[i][x] = pp[1]*(F[i+1][x-counter]+1)*indicator(x>counter_big) + (1-pp[1])*F[i+1][x]   (1<= i <= K)(F[K+1]=F[0])
@@ -375,7 +399,7 @@ class MagicTowerSimulator:
                 G = np.zeros((K+2, H+1))
                 for h in range(1, H+1):
                     # 计算F[0][h]
-                    # 维护表达式：F[0][h] = A[i] * F[i][h] + B[i]    (1<= i <= K) 直到循环回到 F[0][h]
+                    # 维护表达式:F[0][h] = A[i] * F[i][h] + B[i]    (1<= i <= K) 直到循环回到 F[0][h]
                     A = np.zeros(K+2)
                     B = np.zeros(K+2)
                     for j in range(5):
@@ -402,7 +426,7 @@ class MagicTowerSimulator:
                         else:
                             F[i][h] = (1 - pp[1]) * F[i+1][h]
                     # 计算G[0][h]
-                    # 维护表达式：G[0][h] = C[i] * G[i][h] + D[i]    (1<= i <= K) 直到循环回到 G[0][h]
+                    # 维护表达式:G[0][h] = C[i] * G[i][h] + D[i]    (1<= i <= K) 直到循环回到 G[0][h]
                     C = np.zeros(K+2)
                     D = np.zeros(K+2)
                     for j in range(5):
@@ -436,8 +460,8 @@ class MagicTowerSimulator:
                 # 计算怪物对勇士每回合期望伤害
                 monster_base = self._calculate_base_damage(self.m_atk, 0 , self.h_def_thresh)
                 monster_dmg_per_turn = self.k_value * monster_base * (1 - u) * (1 + q)
-                # 递推计算回合数期望（魔法师没有反弹这个效果，但有破防这个效果）
-                # 定义F[H]为怪物血量为H时，直到怪物死亡，勇士对怪物发起攻击的次数期望
+                # 递推计算回合数期望(魔法师没有反弹这个效果,但有破防这个效果)
+                # 定义F[H]为怪物血量为H时,直到怪物死亡,勇士对怪物发起攻击的次数期望
                 F = np.zeros(H+1)
                 for h in range(1, H+1):
                     # F[H] = A * F[H] + B
@@ -459,7 +483,7 @@ class MagicTowerSimulator:
 
 def print_statistics(stats_dict):
     """
-    辅助函数：漂亮地打印统计结果
+    辅助函数:漂亮地打印统计结果
     """
     print("-" * 30)
     print(f"【蒙特卡洛模拟统计结果】")
