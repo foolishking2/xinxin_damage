@@ -892,8 +892,13 @@ class MagicTowerSimulator:
                         A[1] += qq[j]
                     else:
                         B[1] += qq[j] * F[1][max(0, h - mm[j])]
-                A[2] = A[1]**2
-                B[2] = B[1] + A[1] * B[1]
+                B[2] = B[1]
+                for j in range(5):
+                    if mm[j]==0:
+                        A[2] += A[1] * qq[j]
+                    else:
+                        B[2] += A[1] * qq[j] * F[2][max(0, h - mm[j])]
+
                 A[0] = A[2]*(1 - p2)
                 B[0] = A[2]*p2 + B[2]
                 assert(A[0] < 1 - 1e-6)
