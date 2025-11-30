@@ -25,6 +25,15 @@ import numpy as np
 2级:功效为:攻击次数+1。(勇士每回合可以进行2次独立的攻击)
 3级:功效为:当主角的一次攻击击中怪物且能造成伤害,并且主角防御力＜怪物攻击力时,有16%的几率主角对怪物造成附加伤害(暴击判定前),数值为主角的防御力/4。 (对坚固怪无效)
 (勇者之证3级时2级效果同样成立)
+
+
+异常状态：
+有些怪物每次击中勇士时，会有一个固定的概率使勇士进入异常状态（中毒，衰弱），即使这次攻击伤害是0也会判定，但如果被勇士闪避则不会判定。
+霸者之证的反弹生效时，也会进行这个判定。即使这个反弹把怪物杀死了，这次反弹也会进行这个判定。
+这个异常状态不会影响战斗，在战斗后才开始起效。
+魔攻的怪物无法让勇士进入异常状态。
+本文件包含了一个函数，用于计算一次战斗后勇士进入异常状态的概率。
+
 """
 
 class MagicTowerSimulator:
@@ -42,7 +51,9 @@ class MagicTowerSimulator:
                  special_type=None,  # 怪物的特殊能力，只允许 'solid', 'mimic', 'magic', 'k_combo' ，None
                  k_value=1,          # 怪物的连击次数，仅当 special_type='k_combo' 时有效
                  emblem_type=None,   # 章的类型 (None, 'sage', 'hero', 'overlord')
-                 emblem_level=0):    # 章的等级 (0-3)
+                 emblem_level=0,     # 章的等级 (0-3)
+                 abnormal_prob=0     # 怪物击中勇士时使勇士进入异常状态的概率
+                 ):   
         """
         初始化并校验数值。
         """
@@ -70,7 +81,7 @@ class MagicTowerSimulator:
 
         probs = {
             "m_eva": m_eva, "m_crit": m_crit,
-            "h_eva": h_eva, "h_crit": h_crit
+            "h_eva": h_eva, "h_crit": h_crit, "abnormal_prob": abnormal_prob
         }
         for name, val in probs.items():
             if not isinstance(val, (int, float)) or not (0 <= val <= 1):
@@ -111,6 +122,11 @@ class MagicTowerSimulator:
         
         self.special_type = special_type
         self.k_value = k_value if special_type == 'k_combo' else 1
+        if self.special_type == 'magic':
+            abnormal_prob = 0
+        self.have_abnormal = abnormal_prob > 1e-6
+        self.abnormal_prob = float(abnormal_prob)
+
 
         # 战前属性调整 (坚固/仿攻)
         self.m_def = self.m_def_raw
@@ -123,8 +139,10 @@ class MagicTowerSimulator:
             if self.h_atk > self.m_atk_raw:
                 self.m_atk = self.h_atk
 
-    # 这个函数必须返回非负整数
     def _calculate_base_damage(self, atk, defense, threshold):
+        """
+        计算一次普通攻击造成的伤害，这个函数必须返回非负整数
+        """
         assert isinstance(atk, int) and isinstance(defense, int) and isinstance(threshold, int)
         if atk > defense:
             return atk - defense
@@ -133,11 +151,15 @@ class MagicTowerSimulator:
         else:
             return 0
 
-    def simulate_once(self):
+    def simulate_once(self, return_abnormal=False):
         """
         模拟一次完整的战斗过程,返回勇士受到的总伤害。
+        如果打开return_abnormal，返回0表示不会进入异常状态，1表示会进入异常状态。
         """
         
+        if return_abnormal and ((not self.have_abnormal) or self.special_type == 'magic'):
+            return 0
+
         is_ol_3 = self.emblem_type == 'overlord' and self.emblem_level == 3
         is_non_magic = self.special_type != 'magic'
 
@@ -265,6 +287,10 @@ class MagicTowerSimulator:
                             heal = self._round_half_up(self.m_atk / 5)
                             total_hero_damage_taken -= heal
                 else:
+                    if return_abnormal:
+                        if random.random() < self.abnormal_prob:
+                            return 1
+
                     # --- 命中：根据徽章类型处理额外效果（霸者/贤者） ---
                     # 先处理霸者之证反弹/霸体（如存在）
                     if is_non_magic and self.emblem_type == 'overlord':
@@ -356,6 +382,9 @@ class MagicTowerSimulator:
             if current_m_hp <= 0:
                 break
 
+        if return_abnormal:
+            return 0
+
         return total_hero_damage_taken
 
     def monte_carlo_simulation(self, n_trials=10000):
@@ -393,6 +422,42 @@ class MagicTowerSimulator:
         }
         
         return stats
+
+    def monte_carlo_simulation_abnormal(self, n_trials=10000):
+        """
+        运行多次模拟，计算进入异常状态的次数。
+        返回一个包含统计数据的字典。
+        """        
+        if not self.have_abnormal:
+            return {
+                "count": n_trials,
+                "abnormal_count": 0,
+                "abnormal_rate": 0.0
+            }
+        
+        abnormal_count = 0
+        
+        # 批量运行模拟
+        for _ in range(n_trials):
+            res = self.simulate_once(return_abnormal=True)
+            if np.isnan(res):
+                return {
+                    "count": n_trials,
+                    "abnormal_count": np.nan,
+                    "abnormal_rate": np.nan
+                }
+            abnormal_count += res  # res is 0 or 1
+            
+        abnormal_rate = abnormal_count / n_trials
+        
+        stats = {
+            "count": n_trials,
+            "abnormal_count": abnormal_count,
+            "abnormal_rate": abnormal_rate
+        }
+        
+        return stats
+
 
     def calculate_formula_expectation(self):
         """
@@ -523,7 +588,7 @@ class MagicTowerSimulator:
                 G = np.zeros((K+2, H+1))
                 for h in range(1, H+1):
                     # 计算F[0][h]
-                    # 维护表达式：F[0][h] = A[i] * F[i][h] + B[i]    (1<= i <= K) 直到循环回到 F[0][h]
+                    # 维护表达式：F[0][h] = A[i] * F[i][h] + B[i]    (1<= i <= K+1) 直到循环回到 F[0][h]
                     A = np.zeros(K+2)
                     B = np.zeros(K+2)
                     for j in range(5):
@@ -550,7 +615,7 @@ class MagicTowerSimulator:
                         else:
                             F[i][h] = (1 - pp[1]) * F[i+1][h]
                     # 计算G[0][h]
-                    # 维护表达式：G[0][h] = C[i] * G[i][h] + D[i]    (1<= i <= K) 直到循环回到 G[0][h]
+                    # 维护表达式：G[0][h] = C[i] * G[i][h] + D[i]    (1<= i <= K+1) 直到循环回到 G[0][h]
                     C = np.zeros(K+2)
                     D = np.zeros(K+2)
                     for j in range(5):
@@ -714,6 +779,229 @@ class MagicTowerSimulator:
         else:
             raise Exception('Unknown emblem_type.')
 
+    def calculate_abnormal_probability(self):
+        """
+        计算一次战斗后勇士进入异常状态的概率。
+        """
+        H = self.m_hp_max
+        p, q = self.m_eva, self.m_crit
+        u, v = self.h_eva, self.h_crit
+        K = self.k_value
+
+        if not self.have_abnormal:
+            return 0.0
+        
+        if self.emblem_type is None or (self.emblem_type == 'hero' and self.emblem_level == 1) or self.emblem_type == 'sage':
+            hero_base = self._calculate_base_damage(self.h_atk, self.m_def, self.h_atk_thresh)
+            if hero_base <= 0:
+                return np.nan
+            M = int(np.ceil(H / hero_base))
+
+            # 勇士对怪物的进攻手段
+            qq = np.zeros(3)
+            mm = np.zeros(3, dtype=np.int64)
+            # 怪物闪避
+            qq[0] = p
+            mm[0] = 0
+            # 普攻
+            qq[1] = (1-p) * (1-v)
+            mm[1] = 1
+            # 暴击
+            qq[2] = (1-p) * v
+            mm[2] = 2
+
+            # p1表示怪物每次攻击勇士后勇士进入异常状态的概率（对勇士闪避的情况也进行了考虑）
+            p1 = self.abnormal_prob * (1 - u)
+
+            # p2表示怪物每次大攻击后勇士进入异常状态的概率（对于非霸者，可以把怪物的k连击合并为一个大攻击）
+            p2 = 1 - (1 - p1) ** K
+
+            # F[M]表示怪物剩余M次被勇士标准攻击后死亡，下一步为勇士攻击，勇士此时没有异常状态，而战后勇士进入异常状态的概率
+            # F[M] = sum(qq[i] * (p2 + (1-p2)*F[M - mm[i]]) * indicator(M - mm[i] > 0) )  (0<= i <=2)
+            F = np.zeros(M+1)
+            for m in range(1, M+1):
+                # F[M] = A * F[M] + B
+                A = 0
+                B = 0
+                for i in range(3):
+                    if m - mm[i] > 0:
+                        if mm[i]==0:
+                            A += qq[i] * (1 - p2)
+                            B += qq[i] * p2
+                        else:
+                            B += qq[i] * (p2 + (1 - p2) * F[m - mm[i]])
+                assert(A < 1 - 1e-6)
+                F[m] = B / (1 - A)
+            return F[M]
+        elif self.emblem_type == 'hero':
+            assert self.emblem_level >=2
+            hero_base = self._calculate_base_damage(self.h_atk, self.m_def, self.h_atk_thresh)
+            if hero_base <= 0:
+                return np.nan
+
+            # 勇士对怪物的进攻手段
+            qq = np.zeros(5)
+            mm = np.zeros(5, dtype=np.int64)
+            if self.emblem_level == 3 and self.h_def < self.m_atk and self.special_type != 'solid':
+                # 怪物闪避
+                qq[0] = p
+                mm[0] = 0
+                # 勇士不暴击，无附加伤害
+                qq[1] = (1-p) * (1-v) * (1-0.16)
+                mm[1] = hero_base
+                # 勇士不暴击，有附加伤害
+                qq[2] = (1-p) * (1-v) * 0.16    
+                mm[2] = hero_base + self._round_half_up(self.h_def / 4)
+                # 勇士暴击, 无附加伤害
+                qq[3] = (1-p) * v * (1-0.16)
+                mm[3] = hero_base * 2
+                # 勇士暴击, 有附加伤害
+                qq[4] = (1-p) * v * 0.16
+                mm[4] = (hero_base + self._round_half_up(self.h_def / 4)) * 2
+            else:
+                # 怪物闪避
+                qq[0] = p
+                mm[0] = 0
+                # 勇士不暴击
+                qq[1] = (1-p) * (1-v)
+                mm[1] = hero_base
+                # 勇士暴击
+                qq[2] = (1-p) * v
+                mm[2] = hero_base * 2
+
+            # p1表示怪物每次攻击勇士后勇士进入异常状态的概率（对勇士闪避的情况也进行了考虑）
+            p1 = self.abnormal_prob * (1 - u)
+
+            # p2表示怪物每次大攻击后勇士进入异常状态的概率（对于非霸者，可以把怪物的k连击合并为一个大攻击）
+            p2 = 1 - (1 - p1) ** K
+
+            # F[0][H]表示怪物生命值为H，下一步为勇士的第1次攻击，勇士此时没有异常状态，而战后勇士进入异常状态的概率
+            # F[1][H]表示怪物生命值为H，下一步为勇士的第2次攻击，勇士此时没有异常状态，而战后勇士进入异常状态的概率
+            # F[2][H]表示怪物生命值为H，下一步为怪物的大攻击，勇士此时没有异常状态，而战后勇士进入异常状态的概率
+            # F[0][H] = sum( qq[i] * F[1][max(0,H - mm[i])]) )  (0<= i <=4)
+            # F[1][H] = sum( qq[i] * F[2][max(0,H - mm[i])]) )  (0<= i <=4)
+            # F[2][H] = p2 + (1-p2) * F[0][H]
+            F = np.zeros((3, H+1))
+            for h in range(1, H+1):
+                # 计算F[0][h]
+                # 维护表达式：F[0][h] = A[i] * F[i][h] + B[i]    (1<= i <=2) 直到循环回到 F[0][h]
+                A = np.zeros(3)
+                B = np.zeros(3)
+                for j in range(5):
+                    if mm[j]==0:
+                        A[1] += qq[j]
+                    else:
+                        B[1] += qq[j] * F[1][max(0, h - mm[j])]
+                A[2] = A[1]**2
+                B[2] = B[1] + A[1] * B[1]
+                A[0] = A[2]*(1 - p2)
+                B[0] = A[2]*p2 + B[2]
+                assert(A[0] < 1 - 1e-6)
+                F[0][h] = B[0] / (1 - A[0])
+                F[2][h] = p2 + (1 - p2) * F[0][h]
+                for j in range(5):
+                    F[1][h] += qq[j] * F[2][max(0, h - mm[j])]
+            return F[0][H]
+
+        elif self.emblem_type == 'overlord':
+            lvl = self.emblem_level
+            # 勇士对怪物的进攻手段
+            qq = np.zeros(5)
+            mm = np.zeros(5, dtype=np.int64)
+            if lvl == 3:
+                # 怪物闪避
+                qq[0] = p
+                mm[0] = 0
+                # 普攻且不触发破防
+                qq[1] = (1-p) * (1-v) * (1-0.11)
+                mm[1] = self._calculate_base_damage(self.h_atk, self.m_def, self.h_atk_thresh) 
+                # 普攻且触发破防
+                qq[2] = (1-p) * (1-v) * 0.11
+                reduction = self._round_half_up(self.m_def / 1.3)
+                mm[2] = self._calculate_base_damage(self.h_atk, self.m_def - reduction, self.h_atk_thresh)
+                # 暴击且不触发破防
+                qq[3] = (1-p) * v * (1-0.11)
+                mm[3] = self._calculate_base_damage(self.h_atk, self.m_def, self.h_atk_thresh) * 2
+                # 暴击且触发破防
+                qq[4] = (1-p) * v * 0.11
+                mm[4] = self._calculate_base_damage(self.h_atk, self.m_def - reduction, self.h_atk_thresh) * 2
+            else:
+                # 怪物闪避
+                qq[0] = p
+                mm[0] = 0
+                # 普攻
+                qq[1] = (1-p) * (1-v)
+                mm[1] = self._calculate_base_damage(self.h_atk, self.m_def, self.h_atk_thresh) 
+                # 暴击
+                qq[2] = (1-p) * v
+                mm[2] = self._calculate_base_damage(self.h_atk, self.m_def, self.h_atk_thresh) * 2
+
+            # mm必须全部是非负整数
+            if not all(isinstance(x, np.int64) and x >= 0 for x in mm):
+                print(mm)
+                raise Exception('Damage values mm must be non-negative integers in formula calculation.')
+            
+            # Determine counter params per level
+            if lvl == 1:
+                counter_prob = 0.06
+                original_dmg_base = self._calculate_base_damage(self.m_atk, self.h_def, self.h_def_thresh)
+                counter = self._round_half_up(original_dmg_base / 2)  # monster takes
+                counter_big = counter
+            elif lvl == 2:
+                counter_prob = 0.11
+                original_dmg_base = self._calculate_base_damage(self.m_atk, self.h_def, self.h_def_thresh)
+                counter = original_dmg_base
+                counter_big = original_dmg_base
+            else:
+                counter_prob = 0.16
+                counter = self._round_half_up(self.m_atk / 3)
+                counter_big = self._round_half_up(self.m_atk / 2)
+
+            # 无法战斗判定
+            if all(x == 0 for x in mm) and counter == 0:
+                return np.nan                   
+
+            p0 = self.abnormal_prob
+
+            # F[0][H]表示怪物血量为H，下一步为勇士攻击，勇士此时没有异常状态，而战后勇士进入异常状态的概率
+            # F[i][H]表示怪物血量为H，下一步为怪物对勇士发起第i次攻击时，勇士此时没有异常状态，而战后勇士进入异常状态的概率
+            # F[0][H] = sum( qq[i] * F[1][max(H - mm[i],0)] )  (0<= i <=4)
+            # F[i][H] = u * F[i+1][H] + p0 * (1-u) + (1-p0)*(1-u)*(counter_prob * F[i+1][H-counter] * indicatior(H > counter_big) + (1-counter_prob) * F[i+1][H])   (1<= i <= K)(F[K+1]=F[0])
+            F = np.zeros((K+2, H+1))
+            for h in range(1, H+1):
+                # 计算F[0][h]
+                # 维护表达式：F[0][h] = A[i] * F[i][h] + B[i]    (1<= i <= K+1) 直到循环回到 F[0][h]
+                # 为了方便起见，再维护一个表达式：F[i][h] = X[i] * F[i+1][h] + Y[i]   (1<= i <= K)
+                A = np.zeros(K+2)
+                B = np.zeros(K+2)
+                X = np.zeros(K+2)
+                Y = np.zeros(K+2)
+                for j in range(5):
+                    if mm[j]==0:
+                        A[1] += qq[j]
+                    else:
+                        B[1] += qq[j] * F[1][max(0, h - mm[j])]
+                for i in range(1, K+1):
+                    X[i] = u + (1 - u) * (1 - p0) * (1 - counter_prob)
+                    Y[i] = p0 * (1 - u)
+                    if h > counter_big:
+                        if counter == 0:
+                            X[i] += (1 - u) * (1 - p0) * counter_prob
+                        else:
+                            Y[i] += (1 - u) * (1 - p0) * counter_prob * F[i+1][h - counter]
+                    A[i+1] = X[i] * A[i]
+                    B[i+1] = A[i] * Y[i] + B[i]
+                assert(A[K+1] < 1 - 1e-6)
+                F[0][h] = B[K+1] / (1 - A[K+1])
+                F[K+1][h] = F[0][h]
+                # 计算F[i][h] (1<= i <= K)
+                for i in range(K, 0,-1):
+                    F[i][h] = X[i] * F[i+1][h] + Y[i]
+            return F[0][H]
+
+
+
+
 def print_statistics(stats_dict):
     """
     辅助函数：漂亮地打印统计结果
@@ -731,6 +1019,21 @@ def print_statistics(stats_dict):
         print(f"最小值 (Min)    : {stats_dict['min']:.4f}")
         print(f"标准差 (Std Dev): {stats_dict['std']:.4f}")
     print("-" * 30)
+
+def print_statistics_abnormal(stats_dict):
+    """
+    辅助函数：漂亮地打印异常状态统计结果
+    """
+    print("-" * 30)
+    print(f"【蒙特卡洛模拟异常状态统计结果】")
+    print(f"模拟次数     : {stats_dict['count']}")
+    
+    if np.isnan(stats_dict['abnormal_count']):
+        print("结果: 勇士无法击败怪物 (NaN)")
+    else:
+        print(f"异常状态次数 : {stats_dict['abnormal_count']}")
+        print(f"异常状态频率 : {stats_dict['abnormal_rate']:.4f}")
+    print("-" * 30) 
 
 
 def run_test_case(title, description, sim_params, n_trials=20000):
@@ -802,3 +1105,72 @@ def run_test_case(title, description, sim_params, n_trials=20000):
         
         # 打印详细统计
         print_statistics(stats)
+
+def run_test_case2(title, description, sim_params, n_trials=20000):
+    """
+    自动化测试运行器
+    测试异常状态
+    :param title: 测试标题
+    :param description: 测试目的描述
+    :param sim_params: 传递给模拟器的参数字典
+    :param n_trials: 模拟次数
+    """
+    print("=" * 60)
+    print(f"测试案例: {title}")
+    print(f"描述: {description}")
+    print("-" * 60)
+    
+    # 打印怪物属性
+    print("【怪物属性】")
+    print(f"  生命值(HP): {sim_params.get('m_hp', 'N/A')}")
+    print(f"  攻击力(ATK): {sim_params.get('m_atk', 'N/A')}")
+    print(f"  防御力(DEF): {sim_params.get('m_def', 'N/A')}")
+    print(f"  闪避率(EVA): {sim_params.get('m_eva', 'N/A')}")
+    print(f"  暴击率(CRIT): {sim_params.get('m_crit', 'N/A')}")
+    
+    # 打印勇士属性
+    print("【勇士属性】")
+    print(f"  攻击力(ATK): {sim_params.get('h_atk', 'N/A')}")
+    print(f"  防御力(DEF): {sim_params.get('h_def', 'N/A')}")
+    print(f"  闪避率(EVA): {sim_params.get('h_eva', 'N/A')}")
+    print(f"  暴击率(CRIT): {sim_params.get('h_crit', 'N/A')}")
+    
+    # 打印其他参数
+    h_atk_thresh = sim_params.get('h_atk_thresh', 0)
+    h_def_thresh = sim_params.get('h_def_thresh', 0)
+    print(f"【临界值】: 攻击 {h_atk_thresh}, 防御 {h_def_thresh}")
+
+    special_type = sim_params.get('special_type',None)
+    print(f"【特殊能力】: {special_type}")
+    if special_type == 'k_combo':
+        print(f"  连击次数: {sim_params.get('k_value', 1)}")
+    
+    emblem_type = sim_params.get('emblem_type', None)
+    print(f"【徽章类型】: {emblem_type} (等级 {sim_params.get('emblem_level', 0)})")
+    
+    print(f"【异常状态概率】: {sim_params.get('abnormal_prob', 0.0)}")
+    
+    print("-" * 60)
+    # 1. 初始化模拟器
+    sim = MagicTowerSimulator(**sim_params)
+    # 2. 计算解析解 (Formula)
+    formula_val = sim.calculate_abnormal_probability()
+    # 3. 运行蒙特卡洛模拟 (Simulation)
+    stats = sim.monte_carlo_simulation_abnormal(n_trials)
+    # 4. 打印结果对比
+    if np.isnan(formula_val) and np.isnan(stats['abnormal_count']):
+        print(f"【公式预期】: NaN (无法击败)")
+        print(f"【模拟结果】: NaN (无法击败)")
+    else:
+        print(f"【公式预期】: {formula_val:.4f}")
+        print(f"【模拟频率】: {stats['abnormal_rate']:.4f}")
+        
+        # 计算误差
+        error = abs(stats['abnormal_rate'] - formula_val)
+        print(f"【误差分析】: 误差 {error:.4f}")
+        
+        # 打印详细统计
+        print_statistics_abnormal(stats)
+
+
+
