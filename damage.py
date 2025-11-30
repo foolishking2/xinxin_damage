@@ -958,7 +958,7 @@ class MagicTowerSimulator:
                 counter_big = self._round_half_up(self.m_atk / 2)
 
             # 无法战斗判定
-            if all(x == 0 for x in mm) and counter == 0:
+            if all(x == 0 for x in mm) and (counter == 0 or self.special_type == 'magic'):
                 return np.nan                   
 
             p0 = self.abnormal_prob
