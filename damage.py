@@ -34,6 +34,12 @@ import numpy as np
 魔攻的怪物无法让勇士进入异常状态。
 本文件包含了一个函数，用于计算一次战斗后勇士进入异常状态的概率。
 
+秒杀：
+当怪物不是魔法师，怪物的攻击击中了勇士，没有触发霸者之证的反弹或者霸体效果，且怪物的攻击力与勇士的防御临界之和小于勇士的防御（即怪物不能对勇士造成伤害），
+且勇士攻击力大于怪物防御力时，有16%概率触发秒杀效果，立刻终止战斗，怪物直接被杀死。
+秒杀的这一回合不会判定异常状态。
+
+
 """
 
 class MagicTowerSimulator:
@@ -287,12 +293,10 @@ class MagicTowerSimulator:
                             heal = self._round_half_up(self.m_atk / 5)
                             total_hero_damage_taken -= heal
                 else:
-                    if return_abnormal:
-                        if random.random() < self.abnormal_prob:
-                            return 1
-
                     # --- 命中：根据徽章类型处理额外效果（霸者/贤者） ---
                     # 先处理霸者之证反弹/霸体（如存在）
+                    have_counter = False
+                    have_over_body = False
                     if is_non_magic and self.emblem_type == 'overlord':
                         # 设置不同等级的反弹与霸体概率
                         if self.emblem_level == 1:
@@ -307,76 +311,96 @@ class MagicTowerSimulator:
 
                         # 反弹判定（优先）
                         if random.random() < counter_prob:
+                            have_counter = True
+                            hero_takes = 0
+                            monster_takes = 0
                             original_dmg_base = self._calculate_base_damage(self.m_atk, h_def, self.h_def_thresh)
                             if self.emblem_level == 1:
                                 if self._round_half_up(original_dmg_base / 2) >= current_m_hp:
                                     current_m_hp = 0
-                                    break
-                                hero_takes = original_dmg_base
-                                monster_takes = self._round_half_up(original_dmg_base / 2)
+                                    # 注意这个地方不能break，因为在后面有判断异常状态这一步仍需执行
+                                else:
+                                    hero_takes = original_dmg_base
+                                    monster_takes = self._round_half_up(original_dmg_base / 2)
                             elif self.emblem_level == 2:
                                 if original_dmg_base >= current_m_hp:
                                     current_m_hp = 0
-                                    break
-                                hero_takes = self._round_half_up(original_dmg_base / 2)
-                                monster_takes = original_dmg_base
+                                else:
+                                    hero_takes = self._round_half_up(original_dmg_base / 2)
+                                    monster_takes = original_dmg_base
                             else:
                                 if self._round_half_up(self.m_atk / 2) >= current_m_hp:
                                     current_m_hp = 0
-                                    break
-                                hero_takes = self._round_half_up(original_dmg_base / 3)
-                                monster_takes = self._round_half_up(self.m_atk / 3)
+                                else:
+                                    hero_takes = self._round_half_up(original_dmg_base / 3)
+                                    monster_takes = self._round_half_up(self.m_atk / 3)
 
                             total_hero_damage_taken += hero_takes
                             current_m_hp -= monster_takes
-                            if current_m_hp <= 0:
-                                assert(0)
-                            continue
 
                         # 霸体判定
                         if over_body_prob > 0 and random.random() < over_body_prob:
+                            have_over_body = True
                             current_h_def_for_calc *= 2
 
-                    # 贤者之证：命中且能造成伤害时可能触发集能（在暴击判定前减伤）
-                    original_dmg_base = self._calculate_base_damage(self.m_atk, current_h_def_for_calc, self.h_def_thresh)
-                    dmg_reduction = 0
-                    # `heal_now` is the post-battle heal amount that should NOT
-                    # participate in crit calculation. It will be applied
-                    # separately to `total_hero_damage_taken` after the damage
-                    # for this hit is computed.
-                    heal_now = 0
-                    if self.emblem_type == 'sage' and original_dmg_base > 0:
-                        # When energy (集能) triggers, the fixed damage
-                        # reduction (50/100) applies before crit. The random
-                        # post-battle heal is produced now but applied
-                        # separately so it doesn't affect crit.
-                        if self.emblem_level == 2 and is_non_magic:
-                            if random.random() < 0.11:
-                                dmg_reduction = 50
-                                heal_now = random.randint(0, 29)
-                        elif self.emblem_level == 3:
-                            if not self.special_type == 'magic':
-                                if random.random() < 0.31:
+                    if not have_counter:
+                        # 贤者之证：命中且能造成伤害时可能触发集能（在暴击判定前减伤）
+                        original_dmg_base = self._calculate_base_damage(self.m_atk, current_h_def_for_calc, self.h_def_thresh)
+                        dmg_reduction = 0
+                        # `heal_now` is the post-battle heal amount that should NOT
+                        # participate in crit calculation. It will be applied
+                        # separately to `total_hero_damage_taken` after the damage
+                        # for this hit is computed.
+                        heal_now = 0
+                        if self.emblem_type == 'sage' and original_dmg_base > 0:
+                            # When energy (集能) triggers, the fixed damage
+                            # reduction (50/100) applies before crit. The random
+                            # post-battle heal is produced now but applied
+                            # separately so it doesn't affect crit.
+                            if self.emblem_level == 2 and is_non_magic:
+                                if random.random() < 0.11:
                                     dmg_reduction = 50
                                     heal_now = random.randint(0, 29)
-                            else:
-                                if random.random() < 0.21:
-                                    dmg_reduction = 100
-                                    heal_now = random.randint(self.m_atk, self.m_atk + 19)
+                            elif self.emblem_level == 3:
+                                if not self.special_type == 'magic':
+                                    if random.random() < 0.31:
+                                        dmg_reduction = 50
+                                        heal_now = random.randint(0, 29)
+                                else:
+                                    if random.random() < 0.21:
+                                        dmg_reduction = 100
+                                        heal_now = random.randint(self.m_atk, self.m_atk + 19)
 
-                    # --- 标准伤害计算（应用贤者减伤） ---
-                    monster_base_dmg = original_dmg_base - dmg_reduction
-                    # 判定怪物暴击
-                    if random.random() < self.m_crit:
-                        damage_to_hero = monster_base_dmg * 2
-                    else:
-                        damage_to_hero = monster_base_dmg
-                    total_hero_damage_taken += damage_to_hero
-                    # Apply the post-battle heal (converted to immediate heal)
-                    # separately so it does not affect crit calculation. This
-                    # may reduce total damage taken (can be negative effect).
-                    if heal_now:
-                        total_hero_damage_taken -= heal_now
+                        # --- 标准伤害计算（应用贤者减伤） ---
+                        monster_base_dmg = original_dmg_base - dmg_reduction
+                        # 判定怪物暴击
+                        if random.random() < self.m_crit:
+                            damage_to_hero = monster_base_dmg * 2
+                        else:
+                            damage_to_hero = monster_base_dmg
+                        total_hero_damage_taken += damage_to_hero
+                        # Apply the post-battle heal (converted to immediate heal)
+                        # separately so it does not affect crit calculation. This
+                        # may reduce total damage taken (can be negative effect).
+                        if heal_now:
+                            total_hero_damage_taken -= heal_now
+
+                        # 秒杀效果判定
+                        if self.special_type!='magic' and original_dmg_base==0 and not have_over_body and self.h_atk > self.m_def:
+                            if random.random() < 0.16:
+                                current_m_hp = 0
+                                break
+                
+                    # 判定异常状态
+                    # 秒杀时将会直接终止整个战斗流程，本回合不会再判定异常状态。
+                    # 但如果霸者之证的反弹在本回合杀死了怪物，则本回合依然会判定异常状态。
+                    # 新新魔塔V1.1的原代码如此。
+                    if return_abnormal and self.have_abnormal and random.random() < self.abnormal_prob:
+                        return 1
+
+                # 判定怪物死亡
+                if current_m_hp <= 0:
+                    break
 
             # 判定怪物死亡
             if current_m_hp <= 0:
@@ -671,32 +695,61 @@ class MagicTowerSimulator:
             if hero_base <= 0:
                 return np.nan
                 
-            M = np.ceil(H / hero_base)
+            M = int(np.ceil(H / hero_base))
             effective_h_def = 0 if self.special_type == 'magic' else self.h_def
             monster_base = self._calculate_base_damage(self.m_atk, effective_h_def, self.h_def_thresh)
-            monster_dmg_per_turn = monster_base * (1 - u) * (1 + q)
             
-            sage_reduction_evasion_heal = 0
-            sage_reduction_energy = 0
-            if self.emblem_level == 1:
-                sage_reduction_evasion_heal = 0.61 * u * (self._round_half_up(self.m_atk / 5))
-            elif self.emblem_level == 2:
-                sage_reduction_evasion_heal = 0.81 * u * (self._round_half_up(self.m_atk / 5))
-                if monster_base > 0 and self.special_type != 'magic':
-                    sage_reduction_energy = (1 - u) * 0.11 * (50 * (1 + q) + 14.5)  # average heal 0~29 is 14.5
-            else:
-                sage_reduction_evasion_heal = u * self._round_half_up(self.m_atk / 5)
-                if monster_base > 0 and self.special_type != 'magic':
-                    sage_reduction_energy = (1 - u) * 0.31 * (50 * (1 + q) + 14.5)
-                elif self.special_type == 'magic':
-                    sage_reduction_energy = (1 - u) * 0.21 * (100 * (1 + q) + self.m_atk + 9.5)  # average heal m_atk ~ m_atk+19 is m_atk+9.5
+            if not self.special_type == 'magic' and monster_base==0 and self.h_atk > self.m_def:
+                # 可能触发秒杀
 
-            monster_dmg_per_turn -= sage_reduction_evasion_heal + sage_reduction_energy
-            monster_dmg_per_turn *= self.k_value
+                p1 = 1 - 0.16 * (1 - u)  # 每次怪物攻击不被秒杀的概率
+                if self.emblem_level == 1:
+                    monster_dmg_per_turn = - 0.61 * u * (self._round_half_up(self.m_atk / 5)) / p1
+                elif self.emblem_level == 2:
+                    monster_dmg_per_turn = - 0.81 * u * (self._round_half_up(self.m_atk / 5)) / p1
+                else:
+                    monster_dmg_per_turn = - u * self._round_half_up(self.m_atk / 5) / p1
 
-            expected_turns = 1 / ((1 - p) * ((1 + v) ** 2)) * (M * (1 + v) + v * (1 - (-v) ** M)) - 1
-            
-            return monster_dmg_per_turn * expected_turns
+                # F[M]为怪物剩余标准回合数为M时，直到怪物死亡，怪物对勇士进行的没有触发秒杀的攻击次数。
+                F = np.zeros(M+1)
+                for m in range(1, M+1):
+                    # F[M] = A * F[M] + B
+                    A = p * p1 ** K
+                    B = p * (p1**K*(-p1)/(1-p1)+p1/(1-p1))
+                    if m >= 2:
+                        B += (1 - p) * (1 - v) * (p1**K * (F[m-1]-p1/(1-p1)) +p1/(1-p1) )
+                    if m >= 3:
+                        B += (1 - p) * v * (p1**K * (F[m-2]-p1/(1-p1)) +p1/(1-p1) )
+                    assert(A < 1 - 1e-6)
+                    F[m] = B / (1 - A)
+                expected_turns = F[M]
+
+                return monster_dmg_per_turn * expected_turns
+
+            else:      
+                # 不可能触发秒杀     
+                monster_dmg_per_turn = monster_base * (1 - u) * (1 + q)
+                
+                sage_reduction_evasion_heal = 0
+                sage_reduction_energy = 0
+                if self.emblem_level == 1:
+                    sage_reduction_evasion_heal = 0.61 * u * (self._round_half_up(self.m_atk / 5))
+                elif self.emblem_level == 2:
+                    sage_reduction_evasion_heal = 0.81 * u * (self._round_half_up(self.m_atk / 5))
+                    if monster_base > 0 and self.special_type != 'magic':
+                        sage_reduction_energy = (1 - u) * 0.11 * (50 * (1 + q) + 14.5)  # average heal 0~29 is 14.5
+                else:
+                    sage_reduction_evasion_heal = u * self._round_half_up(self.m_atk / 5)
+                    if monster_base > 0 and self.special_type != 'magic':
+                        sage_reduction_energy = (1 - u) * 0.31 * (50 * (1 + q) + 14.5)
+                    elif self.special_type == 'magic':
+                        sage_reduction_energy = (1 - u) * 0.21 * (100 * (1 + q) + self.m_atk + 9.5)  # average heal m_atk ~ m_atk+19 is m_atk+9.5
+
+                monster_dmg_per_turn -= sage_reduction_evasion_heal + sage_reduction_energy
+                monster_dmg_per_turn *= self.k_value
+                expected_turns = 1 / ((1 - p) * ((1 + v) ** 2)) * (M * (1 + v) + v * (1 - (-v) ** M)) - 1
+                
+                return monster_dmg_per_turn * expected_turns
 
         elif self.emblem_type == 'hero':
             assert self.emblem_level >=2
@@ -791,6 +844,11 @@ class MagicTowerSimulator:
         if not self.have_abnormal:
             return 0.0
         
+        can_instant_kill = False
+        monster_base = self._calculate_base_damage(self.m_atk, self.h_def, self.h_def_thresh)
+        if not self.special_type == 'magic' and monster_base==0 and self.h_atk > self.m_def:
+            can_instant_kill = True
+
         if self.emblem_type is None or (self.emblem_type == 'hero' and self.emblem_level == 1) or self.emblem_type == 'sage':
             hero_base = self._calculate_base_damage(self.h_atk, self.m_def, self.h_atk_thresh)
             if hero_base <= 0:
@@ -810,14 +868,17 @@ class MagicTowerSimulator:
             qq[2] = (1-p) * v
             mm[2] = 2
 
-            # p1表示怪物每次攻击勇士后勇士进入异常状态的概率（对勇士闪避的情况也进行了考虑）
-            p1 = self.abnormal_prob * (1 - u)
+            # p1表示怪物每次攻击勇士后勇士进入异常状态的概率（对勇士闪避/秒杀的情况也进行了考虑）
+            p1 = (1 - u) * self.abnormal_prob
+            if can_instant_kill:
+                p1 = (1 - 0.16) * (1 - u) * self.abnormal_prob
 
-            # p2表示怪物每次大攻击后勇士进入异常状态的概率（对于非霸者，可以把怪物的k连击合并为一个大攻击）
-            p2 = 1 - (1 - p1) ** K
+            # p2表示怪物每次攻击勇士后被勇士秒杀的概率（对勇士闪避的情况也进行了考虑）
+            p2 = 0
+            if can_instant_kill:
+                p2 = 0.16 * (1 - u)
 
             # F[M]表示怪物剩余M次被勇士标准攻击后死亡，下一步为勇士攻击，勇士此时没有异常状态，而战后勇士进入异常状态的概率
-            # F[M] = sum(qq[i] * (p2 + (1-p2)*F[M - mm[i]]) * indicator(M - mm[i] > 0) )  (0<= i <=2)
             F = np.zeros(M+1)
             for m in range(1, M+1):
                 # F[M] = A * F[M] + B
@@ -826,10 +887,10 @@ class MagicTowerSimulator:
                 for i in range(3):
                     if m - mm[i] > 0:
                         if mm[i]==0:
-                            A += qq[i] * (1 - p2)
-                            B += qq[i] * p2
+                            A += qq[i] * (1 - p1 - p2)**K
+                            B += qq[i] * ((1-p1-p2)**K*(-p1/(p1+p2)) + p1/(p1+p2))
                         else:
-                            B += qq[i] * (p2 + (1 - p2) * F[m - mm[i]])
+                            B += qq[i] * ((1-p1-p2)**K*(F[m-mm[i]]-p1/(p1+p2)) + p1/(p1+p2))
                 assert(A < 1 - 1e-6)
                 F[m] = B / (1 - A)
             return F[M]
@@ -869,18 +930,22 @@ class MagicTowerSimulator:
                 qq[2] = (1-p) * v
                 mm[2] = hero_base * 2
 
-            # p1表示怪物每次攻击勇士后勇士进入异常状态的概率（对勇士闪避的情况也进行了考虑）
-            p1 = self.abnormal_prob * (1 - u)
+            # p1表示怪物每次攻击勇士后勇士进入异常状态的概率（对勇士闪避/秒杀的情况也进行了考虑）
+            p1 = (1 - u) * self.abnormal_prob
+            if can_instant_kill:
+                p1 = (1 - 0.16) * (1 - u) * self.abnormal_prob
 
-            # p2表示怪物每次大攻击后勇士进入异常状态的概率（对于非霸者，可以把怪物的k连击合并为一个大攻击）
-            p2 = 1 - (1 - p1) ** K
+            # p2表示怪物每次攻击勇士后被勇士秒杀的概率（对勇士闪避的情况也进行了考虑）
+            p2 = 0
+            if can_instant_kill:
+                p2 = 0.16 * (1 - u)
 
             # F[0][H]表示怪物生命值为H，下一步为勇士的第1次攻击，勇士此时没有异常状态，而战后勇士进入异常状态的概率
             # F[1][H]表示怪物生命值为H，下一步为勇士的第2次攻击，勇士此时没有异常状态，而战后勇士进入异常状态的概率
             # F[2][H]表示怪物生命值为H，下一步为怪物的大攻击，勇士此时没有异常状态，而战后勇士进入异常状态的概率
             # F[0][H] = sum( qq[i] * F[1][max(0,H - mm[i])]) )  (0<= i <=4)
             # F[1][H] = sum( qq[i] * F[2][max(0,H - mm[i])]) )  (0<= i <=4)
-            # F[2][H] = p2 + (1-p2) * F[0][H]
+            # F[2][H] = (1-p1-p2)**K*(F[0][H]-p1/(p1+p2)) + p1/(p1+p2)
             F = np.zeros((3, H+1))
             for h in range(1, H+1):
                 # 计算F[0][h]
@@ -899,11 +964,11 @@ class MagicTowerSimulator:
                     else:
                         B[2] += A[1] * qq[j] * F[2][max(0, h - mm[j])]
 
-                A[0] = A[2]*(1 - p2)
-                B[0] = A[2]*p2 + B[2]
+                A[0] = A[2] * (1 - p1 - p2)**K
+                B[0] = A[2] * ((1 - p1 - p2)**K * (-p1 / (p1 + p2)) + p1 / (p1 + p2)) + B[2]
                 assert(A[0] < 1 - 1e-6)
                 F[0][h] = B[0] / (1 - A[0])
-                F[2][h] = p2 + (1 - p2) * F[0][h]
+                F[2][h] = (1 - p1 - p2)**K * (F[0][h] - p1 / (p1 + p2)) + p1 / (p1 + p2)
                 for j in range(5):
                     F[1][h] += qq[j] * F[2][max(0, h - mm[j])]
             return F[0][H]
@@ -949,16 +1014,19 @@ class MagicTowerSimulator:
             # Determine counter params per level
             if lvl == 1:
                 counter_prob = 0.06
+                overbody_prob = 0
                 original_dmg_base = self._calculate_base_damage(self.m_atk, self.h_def, self.h_def_thresh)
                 counter = self._round_half_up(original_dmg_base / 2)  # monster takes
                 counter_big = counter
             elif lvl == 2:
                 counter_prob = 0.11
+                overbody_prob = 0.11
                 original_dmg_base = self._calculate_base_damage(self.m_atk, self.h_def, self.h_def_thresh)
                 counter = original_dmg_base
                 counter_big = original_dmg_base
             else:
                 counter_prob = 0.16
+                overbody_prob = 0.16
                 counter = self._round_half_up(self.m_atk / 3)
                 counter_big = self._round_half_up(self.m_atk / 2)
 
@@ -968,10 +1036,18 @@ class MagicTowerSimulator:
 
             p0 = self.abnormal_prob
 
+            # p2表示怪物攻击勇士，没被闪避，没被反弹时，被勇士秒杀的概率
+            p2 = 0
+            if can_instant_kill:
+                p2 = 0.16 * (1 - overbody_prob)  # 还不能有霸体
+
             # F[0][H]表示怪物血量为H，下一步为勇士攻击，勇士此时没有异常状态，而战后勇士进入异常状态的概率
             # F[i][H]表示怪物血量为H，下一步为怪物对勇士发起第i次攻击时，勇士此时没有异常状态，而战后勇士进入异常状态的概率
             # F[0][H] = sum( qq[i] * F[1][max(H - mm[i],0)] )  (0<= i <=4)
-            # F[i][H] = u * F[i+1][H] + p0 * (1-u) + (1-p0)*(1-u)*(counter_prob * F[i+1][H-counter] * indicatior(H > counter_big) + (1-counter_prob) * F[i+1][H])   (1<= i <= K)(F[K+1]=F[0])
+            # F[i][H] = u * F[i+1][H]      # 怪物攻击被闪避
+            #         + (1 - u) * counter_prob * (p0 + (1-p0)*(F[i+1][H-counter]*indicator(H>counter_big)))   # 怪物攻击被反弹
+            #         + (1 - u) * (1 - counter_prob) * (1 - p2) * (p0+(1-p0)*F[i+1][H]) # 怪物攻击未被闪避/反弹/秒杀
+            #         # 怪物攻击被秒杀,此时概率为0
             F = np.zeros((K+2, H+1))
             for h in range(1, H+1):
                 # 计算F[0][h]
@@ -987,13 +1063,13 @@ class MagicTowerSimulator:
                     else:
                         B[1] += qq[j] * F[1][max(0, h - mm[j])]
                 for i in range(1, K+1):
-                    X[i] = u + (1 - u) * (1 - p0) * (1 - counter_prob)
-                    Y[i] = p0 * (1 - u)
+                    X[i] = u + (1 - u) * (1 - counter_prob) * (1 - p2) * (1 - p0)
+                    Y[i] = (1 - u) * counter_prob * p0 + (1 - u) * (1 - counter_prob) * (1 - p2) * p0
                     if h > counter_big:
-                        if counter == 0:
-                            X[i] += (1 - u) * (1 - p0) * counter_prob
+                        if counter==0:
+                            X[i] += (1 - u) * counter_prob * (1 - p0)
                         else:
-                            Y[i] += (1 - u) * (1 - p0) * counter_prob * F[i+1][h - counter]
+                            Y[i] += (1 - u) * counter_prob * (1 - p0) * F[i+1][h - counter]
                     A[i+1] = X[i] * A[i]
                     B[i+1] = A[i] * Y[i] + B[i]
                 assert(A[K+1] < 1 - 1e-6)
