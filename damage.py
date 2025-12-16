@@ -1,6 +1,6 @@
 import random
 import numpy as np
-from scipy.stats import norm
+from scipy.stats import t, norm
 
 
 SIGNIFICANCE_LEVEL = 0.001 # 显著性水平。如果 P值 < SIGNIFICANCE_LEVEL，则认为公式不合理。
@@ -446,7 +446,7 @@ class MagicTowerSimulator:
             "median": np.median(results_array),
             "max": np.max(results_array),
             "min": np.min(results_array),
-            "std": np.std(results_array)
+            "std": np.std(results_array, ddof=1)
         }
         
         return stats
@@ -1188,34 +1188,33 @@ def run_test_case(title, description, sim_params, n_trials=20000):
     error_pct = (error / np.abs(formula_val) * 100) if formula_val != 0 else np.nan
     print(f"【误差分析】: 绝对误差 {error:.4f} / 相对误差 {error_pct:.2f}%")
     
-    # 5. 假设检验 (Z-Test)
+    # 5. 假设检验 (T-Test)
     mean_sim = stats['mean']
     std_dev = stats['std']
     n = stats['count']
     mu_0 = formula_val
+    df = n - 1  # 自由度
 
-    # 避免除以零或标准差过小
-    if std_dev == 0 or n < 30: # n < 30 可能用T检验，但此处沿用Z检验逻辑，并增加保护
+    if std_dev == 0 or n < 2:
         p_value = 1.0 if np.isclose(mean_sim, mu_0) else 0.0
     else:
-        # Z 统计量计算: Z = (X̄ - μ₀) / (s / √n)
-        z_stat = (mean_sim - mu_0) / (std_dev / np.sqrt(n))
+        # T 统计量计算: T = (X̄ - μ₀) / (s / √n)
+        t_stat = (mean_sim - mu_0) / (std_dev / np.sqrt(n))
         
-        # P 值计算 (双尾检验): P = 2 * P(Z > |z_stat|)
-        p_value = 2 * (1 - norm.cdf(np.abs(z_stat)))
+        # P 值计算 (双尾检验): 使用 t 分布的累计分布函数 (cdf)
+        # p = 2 * P(T > |t_stat|)
+        p_value = 2 * (1 - t.cdf(np.abs(t_stat), df=df))
 
-    print(f"【假设检验P值】: {p_value:.6f} (显著性水平={SIGNIFICANCE_LEVEL})")
+    print(f"【T检验 P值】: {p_value:.6f} (自由度 df={df}, 显著性水平={SIGNIFICANCE_LEVEL})")
     
     # 6. 判定和异常抛出
     if p_value < SIGNIFICANCE_LEVEL:
-        print("\n!!! 假设检验失败 !!!")
-        print(f"P值 ({p_value:.6f}) < 显著性水平 ({SIGNIFICANCE_LEVEL})")
-        print("=> 拒绝零假设：公式预期与模拟结果存在显著差异。")
-        raise Exception(f"公式与模拟结果不符 (P值过低: {p_value:.6f})")
+        print("\n!!! 假设检验失败 (T-Test) !!!")
+        print("=> 拒绝零假设：公式预期与模拟频率存在显著差异。")
+        raise Exception(f"公式解析解与模拟均值显著不符 (P值: {p_value:.6f})")
     else:
-        print("假设检验通过: 公式预期与模拟结果无显著差异 (接受零假设)。")
+        print("假设检验通过: 解析解与模拟均值无显著差异。")
 
-    # 打印详细统计
     print_statistics(stats)
     print("=" * 60)
 
@@ -1308,12 +1307,11 @@ def run_test_case2(title, description, sim_params, n_trials=20000):
         # P 值计算 (双尾检验): P = 2 * P(Z > |z_stat|)
         p_value = 2 * (1 - norm.cdf(np.abs(z_stat)))
 
-    print(f"【假设检验P值】: {p_value:.6f} (显著性水平={SIGNIFICANCE_LEVEL})")
+    print(f"【Z检验 P值】: {p_value:.6f} (显著性水平={SIGNIFICANCE_LEVEL})")
     
     # 6. 判定和异常抛出
     if p_value < SIGNIFICANCE_LEVEL:
         print("\n!!! 假设检验失败 !!!")
-        print(f"P值 ({p_value:.6f}) < 显著性水平 ({SIGNIFICANCE_LEVEL})")
         print("=> 拒绝零假设：公式预期与模拟频率存在显著差异。")
         raise Exception(f"公式与模拟结果不符 (P值过低: {p_value:.6f})")
     else:
