@@ -1,5 +1,9 @@
 import random
 import numpy as np
+from scipy.stats import norm
+
+
+SIGNIFICANCE_LEVEL = 0.001 # 显著性水平。如果 P值 < SIGNIFICANCE_LEVEL，则认为公式不合理。
 
 
 """
@@ -1119,18 +1123,15 @@ def print_statistics_abnormal(stats_dict):
 
 def run_test_case(title, description, sim_params, n_trials=20000):
     """
-    自动化测试运行器
-    :param title: 测试标题
-    :param description: 测试目的描述
-    :param sim_params: 传递给模拟器的参数字典
-    :param n_trials: 模拟次数
+    自动化测试运行器，包含假设检验。
+    零假设 H0: 公式解析解 (formula_val) = 真实的数学期望
     """
     print("=" * 60)
     print(f"测试案例: {title}")
     print(f"描述: {description}")
     print("-" * 60)
     
-    # 打印怪物属性
+    # 打印怪物属性 (省略，保持原样)
     print("【怪物属性】")
     print(f"  生命值(HP): {sim_params.get('m_hp', 'N/A')}")
     print(f"  攻击力(ATK): {sim_params.get('m_atk', 'N/A')}")
@@ -1138,14 +1139,14 @@ def run_test_case(title, description, sim_params, n_trials=20000):
     print(f"  闪避率(EVA): {sim_params.get('m_eva', 'N/A')}")
     print(f"  暴击率(CRIT): {sim_params.get('m_crit', 'N/A')}")
     
-    # 打印勇士属性
+    # 打印勇士属性 (省略，保持原样)
     print("【勇士属性】")
     print(f"  攻击力(ATK): {sim_params.get('h_atk', 'N/A')}")
     print(f"  防御力(DEF): {sim_params.get('h_def', 'N/A')}")
     print(f"  闪避率(EVA): {sim_params.get('h_eva', 'N/A')}")
     print(f"  暴击率(CRIT): {sim_params.get('h_crit', 'N/A')}")
     
-    # 打印其他参数
+    # 打印其他参数 (省略，保持原样)
     h_atk_thresh = sim_params.get('h_atk_thresh', 0)
     h_def_thresh = sim_params.get('h_def_thresh', 0)
     print(f"【临界值】: 攻击 {h_atk_thresh}, 防御 {h_def_thresh}")
@@ -1157,12 +1158,10 @@ def run_test_case(title, description, sim_params, n_trials=20000):
     
     emblem_type = sim_params.get('emblem_type', None)
     print(f"【徽章类型】: {emblem_type} (等级 {sim_params.get('emblem_level', 0)})")
-    
 
-    
     print("-" * 60)
 
-    # 1. 初始化模拟器
+    # 1. 初始化模拟器 (需要 MagicTowerSimulator 类可用)
     sim = MagicTowerSimulator(**sim_params)
     
     # 2. 计算解析解 (Formula)
@@ -1172,36 +1171,66 @@ def run_test_case(title, description, sim_params, n_trials=20000):
     stats = sim.monte_carlo_simulation(n_trials)
     
     # 4. 打印结果对比
-    if np.isnan(formula_val) and np.isnan(stats['mean']):
-        print(f"【公式预期】: NaN (无法击败)")
-        print(f"【模拟结果】: NaN (无法击败)")
-    else:
-        print(f"【公式预期】: {formula_val:.4f}")
-        print(f"【模拟均值】: {stats['mean']:.4f}")
-        
-        # 计算误差
-        error = abs(stats['mean'] - formula_val)
-        error_pct = (error / np.abs(formula_val) * 100) if formula_val != 0 else np.nan
-        print(f"【误差分析】: 绝对误差 {error:.4f} / 相对误差 {error_pct:.2f}%")
-        
-        # 打印详细统计
+    
+    # 针对 NaN/无法击败的情况
+    if np.isnan(formula_val) or np.isnan(stats['mean']):
+        print(f"【公式预期】: {'NaN' if np.isnan(formula_val) else f'{formula_val:.4f}'} (无法击败)")
+        print(f"【模拟结果】: {'NaN' if np.isnan(stats['mean']) else f'{stats['mean']:.4f}'} (无法击败)")
         print_statistics(stats)
+        return
+
+    # 针对可击败的情况
+    print(f"【公式预期】: {formula_val:.4f}")
+    print(f"【模拟均值】: {stats['mean']:.4f}")
+    
+    # 计算误差
+    error = abs(stats['mean'] - formula_val)
+    error_pct = (error / np.abs(formula_val) * 100) if formula_val != 0 else np.nan
+    print(f"【误差分析】: 绝对误差 {error:.4f} / 相对误差 {error_pct:.2f}%")
+    
+    # 5. 假设检验 (Z-Test)
+    mean_sim = stats['mean']
+    std_dev = stats['std']
+    n = stats['count']
+    mu_0 = formula_val
+
+    # 避免除以零或标准差过小
+    if std_dev == 0 or n < 30: # n < 30 可能用T检验，但此处沿用Z检验逻辑，并增加保护
+        p_value = 1.0 if np.isclose(mean_sim, mu_0) else 0.0
+    else:
+        # Z 统计量计算: Z = (X̄ - μ₀) / (s / √n)
+        z_stat = (mean_sim - mu_0) / (std_dev / np.sqrt(n))
+        
+        # P 值计算 (双尾检验): P = 2 * P(Z > |z_stat|)
+        p_value = 2 * (1 - norm.cdf(np.abs(z_stat)))
+
+    print(f"【假设检验P值】: {p_value:.6f} (显著性水平={SIGNIFICANCE_LEVEL})")
+    
+    # 6. 判定和异常抛出
+    if p_value < SIGNIFICANCE_LEVEL:
+        print("\n!!! 假设检验失败 !!!")
+        print(f"P值 ({p_value:.6f}) < 显著性水平 ({SIGNIFICANCE_LEVEL})")
+        print("=> 拒绝零假设：公式预期与模拟结果存在显著差异。")
+        raise Exception(f"公式与模拟结果不符 (P值过低: {p_value:.6f})")
+    else:
+        print("假设检验通过: 公式预期与模拟结果无显著差异 (接受零假设)。")
+
+    # 打印详细统计
+    print_statistics(stats)
+    print("=" * 60)
 
 def run_test_case2(title, description, sim_params, n_trials=20000):
     """
     自动化测试运行器
-    测试异常状态
-    :param title: 测试标题
-    :param description: 测试目的描述
-    :param sim_params: 传递给模拟器的参数字典
-    :param n_trials: 模拟次数
+    测试异常状态，并进行二项分布的 Z 假设检验。
+    零假设 H0: 公式解析解 (formula_val) = 真实的异常状态概率
     """
     print("=" * 60)
     print(f"测试案例: {title}")
     print(f"描述: {description}")
     print("-" * 60)
     
-    # 打印怪物属性
+    # 打印属性 (省略，保持原样)
     print("【怪物属性】")
     print(f"  生命值(HP): {sim_params.get('m_hp', 'N/A')}")
     print(f"  攻击力(ATK): {sim_params.get('m_atk', 'N/A')}")
@@ -1209,14 +1238,12 @@ def run_test_case2(title, description, sim_params, n_trials=20000):
     print(f"  闪避率(EVA): {sim_params.get('m_eva', 'N/A')}")
     print(f"  暴击率(CRIT): {sim_params.get('m_crit', 'N/A')}")
     
-    # 打印勇士属性
     print("【勇士属性】")
     print(f"  攻击力(ATK): {sim_params.get('h_atk', 'N/A')}")
     print(f"  防御力(DEF): {sim_params.get('h_def', 'N/A')}")
     print(f"  闪避率(EVA): {sim_params.get('h_eva', 'N/A')}")
     print(f"  暴击率(CRIT): {sim_params.get('h_crit', 'N/A')}")
     
-    # 打印其他参数
     h_atk_thresh = sim_params.get('h_atk_thresh', 0)
     h_def_thresh = sim_params.get('h_def_thresh', 0)
     print(f"【临界值】: 攻击 {h_atk_thresh}, 防御 {h_def_thresh}")
@@ -1229,29 +1256,70 @@ def run_test_case2(title, description, sim_params, n_trials=20000):
     emblem_type = sim_params.get('emblem_type', None)
     print(f"【徽章类型】: {emblem_type} (等级 {sim_params.get('emblem_level', 0)})")
     
-    print(f"【异常状态概率】: {sim_params.get('abnormal_prob', 0.0)}")
+    abnormal_prob_param = sim_params.get('abnormal_prob', 0.0)
+    print(f"【异常状态参数】: {abnormal_prob_param:.4f}")
     
     print("-" * 60)
+    
     # 1. 初始化模拟器
     sim = MagicTowerSimulator(**sim_params)
-    # 2. 计算解析解 (Formula)
+    
+    # 2. 计算解析解 (Formula) - 理论概率 p0
     formula_val = sim.calculate_abnormal_probability()
+    
     # 3. 运行蒙特卡洛模拟 (Simulation)
     stats = sim.monte_carlo_simulation_abnormal(n_trials)
+    
     # 4. 打印结果对比
-    if np.isnan(formula_val) and np.isnan(stats['abnormal_count']):
-        print(f"【公式预期】: NaN (无法击败)")
-        print(f"【模拟结果】: NaN (无法击败)")
-    else:
-        print(f"【公式预期】: {formula_val:.4f}")
-        print(f"【模拟频率】: {stats['abnormal_rate']:.4f}")
-        
-        # 计算误差
-        error = abs(stats['abnormal_rate'] - formula_val)
-        print(f"【误差分析】: 误差 {error:.4f}")
-        
-        # 打印详细统计
+    
+    # 针对 NaN/无法击败的情况 (假设NaN表示无法击败，无法计算概率)
+    if np.isnan(formula_val) or np.isnan(stats['abnormal_rate']):
+        print(f"【公式预期】: {'NaN' if np.isnan(formula_val) else f'{formula_val:.4f}'}")
+        print(f"【模拟频率】: {'NaN' if np.isnan(stats['abnormal_rate']) else f'{stats['abnormal_rate']:.4f}'}")
+        print("结果: 无法计算概率 (NaN)")
         print_statistics_abnormal(stats)
+        return
 
+    # 针对可计算概率的情况
+    print(f"【公式预期】: {formula_val:.4f}")
+    print(f"【模拟频率】: {stats['abnormal_rate']:.4f}")
+    
+    # 计算误差
+    error = abs(stats['abnormal_rate'] - formula_val)
+    print(f"【误差分析】: 绝对误差 {error:.4f}")
+    
+    # 5. 假设检验 (二项分布 Z-Test)
+    
+    p_hat = stats['abnormal_rate'] # 模拟频率
+    p_0 = formula_val              # 理论概率 (零假设)
+    n = n_trials                   # 样本量
 
+    # 检查 Z 检验的条件 (np.isclose 避免浮点数比较问题)
+    if np.isclose(p_0, 0.0) or np.isclose(p_0, 1.0) or n * p_0 < 5 or n * (1 - p_0) < 5:
+        # 概率接近0或1，或样本量/概率太小，不适合用正态近似，直接比较
+        # 此时 P值通常设置为 1.0 或 0.0
+        p_value = 1.0 if np.isclose(p_hat, p_0, atol=2e-3) else 0.0
+        print("注意: 概率接近0或1，或np太小，未进行严格Z检验。")
+    else:
+        # Z 统计量计算: Z = (p̂ - p₀) / SE
+        standard_error = np.sqrt(p_0 * (1 - p_0) / n)
+        z_stat = (p_hat - p_0) / standard_error
+        
+        # P 值计算 (双尾检验): P = 2 * P(Z > |z_stat|)
+        p_value = 2 * (1 - norm.cdf(np.abs(z_stat)))
+
+    print(f"【假设检验P值】: {p_value:.6f} (显著性水平={SIGNIFICANCE_LEVEL})")
+    
+    # 6. 判定和异常抛出
+    if p_value < SIGNIFICANCE_LEVEL:
+        print("\n!!! 假设检验失败 !!!")
+        print(f"P值 ({p_value:.6f}) < 显著性水平 ({SIGNIFICANCE_LEVEL})")
+        print("=> 拒绝零假设：公式预期与模拟频率存在显著差异。")
+        raise Exception(f"公式与模拟结果不符 (P值过低: {p_value:.6f})")
+    else:
+        print("假设检验通过: 公式预期与模拟频率无显著差异 (接受零假设)。")
+
+    # 打印详细统计
+    print_statistics_abnormal(stats)
+    print("=" * 60)
 
